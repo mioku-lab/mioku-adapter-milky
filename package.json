@@ -1,0 +1,52 @@
+{
+  "name": "mioku-adapter-milky",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Milky protocol adapter for mioku.",
+  "keywords": [
+    "mioku",
+    "milky"
+  ],
+  "engines": {
+    "node": ">= 22.18.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsdown -w",
+    "build": "tsdown"
+  },
+  "bin": {
+    "mioku-adapter-milky": "./dist/cli.mjs"
+  },
+  "exports": {
+    ".": {
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.mjs"
+    },
+    "./cli": {
+      "require": "./dist/cli.cjs",
+      "import": "./dist/cli.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mioku-lab/mioku-adapter-milky.git"
+  },
+  "author": "Jerryplusy <jerryplusy@outlook.com>",
+  "license": "MIT",
+  "peerDependencies": {
+    "mioku": "^1.0.0"
+  },
+  "dependencies": {
+    "consola": "^3.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.8",
+    "mioku": "workspace:*",
+    "tsdown": "^0.18.4",
+    "typescript": "^5.9.3"
+  }
+}
