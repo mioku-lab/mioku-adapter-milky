@@ -43,10 +43,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const collectInstances = (input: unknown): unknown[] => {
+  if (input == null) return [];
   if (Array.isArray(input)) return input;
-  if (!isRecord(input)) return [];
-  if (Array.isArray(input.instances)) return input.instances;
-  return "host" in input || "port" in input ? [input] : [];
+  if (!isRecord(input)) throw new Error("milky 配置必须是对象或数组");
+  if (input.instances == null)
+    return "host" in input || "port" in input ? [input] : [];
+  if (!Array.isArray(input.instances))
+    throw new Error("milky.instances 必须是数组");
+  return input.instances;
 };
 
 const oneOf = <T extends string>(
@@ -143,12 +147,10 @@ export const resolveInstance = (
   };
 };
 
-export const normalizeConfig = (input: unknown): MilkyAdapterConfig => {
-  const instances = collectInstances(input).map(resolveInstance);
-  if (instances.length === 0)
-    throw new Error("milky.instances 至少需要配置一个实例");
-  return { instances };
-};
+/** 未配置实例时返回空列表：适配器照常加载，只是不建立任何连接 */
+export const normalizeConfig = (input: unknown): MilkyAdapterConfig => ({
+  instances: collectInstances(input).map(resolveInstance),
+});
 
 const formatHost = (host: string): string =>
   host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;

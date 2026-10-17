@@ -79,17 +79,24 @@ export const buildMessageEvent = (
   bot: Bot,
   data: MilkyIncomingMessage,
 ): MessageEvent => {
-  const isGroup = data.message_scene === "group";
-  const peer = { scene: data.message_scene, peer_id: data.peer_id };
+  const scene = data.message_scene;
+  const isGroup = scene === "group";
+  const isTemp = scene === "temp";
+  const peer = { scene, peer_id: data.peer_id };
   const userId = String(data.sender_id);
-  const groupId = isGroup ? String(data.peer_id) : undefined;
+  // 临时会话按 OneBot 习惯带来源群号，sub_type 也用 group
+  const groupId = isGroup
+    ? String(data.peer_id)
+    : isTemp
+      ? idOf(data.group?.group_id ?? null)
+      : undefined;
   const groupName =
-    data.message_scene === "group" ? data.group?.group_name : undefined;
+    scene === "group" || scene === "temp" ? data.group?.group_name : undefined;
   const messageId = encodeMessageId({ ...peer, message_seq: data.message_seq });
   const quoteSeq = replySeqOf(data.segments);
   const message = fromMilkySegments(data.segments);
   const sender = senderOf(data);
-  const subType = isGroup ? undefined : data.message_scene;
+  const subType = isGroup ? undefined : isTemp ? "group" : "friend";
   const target = isGroup
     ? { type: "group", group_id: groupId }
     : { type: "private", user_id: userId };
@@ -142,8 +149,9 @@ export const buildMessageEvent = (
 
 export const noticeSpecOf = (
   event: MilkyEvent,
-  selfId: number,
+  bot: Bot,
 ): MilkyNoticeSpec | null => {
+  const selfId = Number(bot.bot_id);
   switch (event.event_type) {
     case "message_recall": {
       const d = event.data;
@@ -177,12 +185,15 @@ export const noticeSpecOf = (
     }
     case "friend_nudge": {
       const d = event.data;
+      // OneBot poke：user_id 是发起者，target_id 是被戳者
       return {
         notice_type: "friend",
         sub_type: "poke",
         user_id: d.is_self_send ? selfId : d.user_id,
         extra: {
           target_id: String(d.is_self_receive ? selfId : d.user_id),
+          self_send: d.is_self_send,
+          self_receive: d.is_self_receive,
           action: d.display_action,
           suffix: d.display_suffix,
           action_img_url: d.display_action_img_url,

@@ -59,6 +59,30 @@ fields:
         description: 事件推送连接断开后是否自动重连。
         defaultValue: true
 
+      - key: reconnectInterval
+        label: 重连间隔
+        type: number
+        description: 首次重连间隔（毫秒），之后按指数退避；仅在开启自动重连时生效。
+        placeholder: 1000
+
+      - key: maxReconnectAttempts
+        label: 最大重连次数
+        type: number
+        description: 连续重连的最大次数，留空表示不限。
+        placeholder: 不限
+
+      - key: maxReconnectInterval
+        label: 重连间隔上限
+        type: number
+        description: 重连间隔的上限（毫秒）。
+        placeholder: 30000
+
+      - key: timeout
+        label: API 请求超时
+        type: number
+        description: 单次 API 调用超时（毫秒）。
+        placeholder: 30000
+
       - key: ignore_self
         label: 忽略自己账号的消息
         type: switch

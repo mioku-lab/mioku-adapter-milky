@@ -9,6 +9,8 @@ import type { MilkyEventTransport } from "./config";
 export interface MilkyGatewayOptions {
   readonly name: string;
   readonly url: string;
+  /** 带掩码的地址，只用于日志 */
+  readonly displayUrl: string;
   readonly transport: MilkyEventTransport;
   readonly token?: string;
   readonly ws: WebSocketClient;
@@ -25,6 +27,9 @@ export interface MilkyGatewayHandlers {
   onClose(reason: string): Promise<void>;
 }
 
+/** 与 driver 的 WebSocket 连接超时保持一致 */
+const SSE_CONNECT_TIMEOUT_MS = 15_000;
+
 const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
 
@@ -35,6 +40,11 @@ const parseJson = (text: string): unknown => {
     return undefined;
   }
 };
+
+const redact = (text: string, raw: string, masked: string): string =>
+  text
+    .replaceAll(raw, masked)
+    .replace(/access_token=[^&\s"']*/g, "access_token=***");
 
 export class MilkyEventGateway implements AdapterGateway {
   readonly name: string;
@@ -58,8 +68,11 @@ export class MilkyEventGateway implements AdapterGateway {
     try {
       await this.#connect();
     } catch (err) {
-      if (!this.#options.reconnect) throw err;
-      this.#options.logger.warn(`连接事件推送失败: ${errorMessage(err)}`);
+      // 驱动抛出的错误文本里可能带着含 token 的连接地址，外抛前先掩码
+      const message = this.#redact(errorMessage(err));
+      if (this.#stopped) return;
+      if (!this.#options.reconnect) throw new Error(message);
+      this.#options.logger.warn(`连接事件推送失败: ${message}`);
       this.#scheduleReconnect();
     }
   }
@@ -93,7 +106,9 @@ export class MilkyEventGateway implements AdapterGateway {
       this.#emit(parseJson(text));
     });
     connection.onError((err) => {
-      this.#options.logger.warn(`事件推送连接异常: ${err.message}`);
+      this.#options.logger.warn(
+        `事件推送连接异常: ${this.#redact(err.message)}`,
+      );
     });
     connection.onClose(({ code, reason }) => {
       if (this.#connection !== connection) return;
@@ -113,23 +128,38 @@ export class MilkyEventGateway implements AdapterGateway {
 
   async #connectSse(): Promise<void> {
     const controller = new AbortController();
+    // 先挂上，stop() 在连接尚未建立时也能中止
+    this.#sse = controller;
     const headers: Record<string, string> = { Accept: "text/event-stream" };
     if (this.#options.token)
       headers.Authorization = `Bearer ${this.#options.token}`;
     // Driver 的 HttpClient 会缓冲完整响应体，SSE 长连接只能直接用 fetch 读流
-    const response = await fetch(this.#options.url, {
-      headers,
-      signal: controller.signal,
-    });
-    if (!response.ok || !response.body) {
-      controller.abort();
-      throw new Error(`SSE 连接失败: HTTP ${response.status}`);
+    const timer = setTimeout(
+      () => controller.abort(new Error(`SSE 连接超时 ${SSE_CONNECT_TIMEOUT_MS}ms`)),
+      SSE_CONNECT_TIMEOUT_MS,
+    );
+    let response: Response;
+    try {
+      response = await fetch(this.#options.url, {
+        headers,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      this.#sse = null;
+      throw new Error(this.#redact(errorMessage(err)));
+    } finally {
+      clearTimeout(timer);
     }
     if (this.#stopped) {
+      this.#sse = null;
       controller.abort();
       return;
     }
-    this.#sse = controller;
+    if (!response.ok || !response.body) {
+      this.#sse = null;
+      controller.abort();
+      throw new Error(`SSE 连接失败: HTTP ${response.status}`);
+    }
     try {
       await this.#handlers.onOpen();
     } catch (err) {
@@ -178,12 +208,19 @@ export class MilkyEventGateway implements AdapterGateway {
 
   #emit(payload: unknown): void {
     this.#handlers.onEvent(payload).catch((err: unknown) => {
-      this.#options.logger.error(`处理 Milky 事件失败: ${errorMessage(err)}`);
+      this.#options.logger.error(
+        `处理 Milky 事件失败: ${this.#redact(errorMessage(err))}`,
+      );
     });
   }
 
+  /** 日志里出现连接地址时统一掩码，避免 access_token 落盘 */
+  #redact(text: string): string {
+    return redact(text, this.#options.url, this.#options.displayUrl);
+  }
+
   #lost(reason: string): void {
-    this.#options.logger.warn(reason);
+    this.#options.logger.warn(this.#redact(reason));
     this.#handlers.onClose(reason).catch(() => undefined);
     this.#scheduleReconnect();
   }
@@ -211,7 +248,8 @@ export class MilkyEventGateway implements AdapterGateway {
       this.#timer = null;
       if (this.#stopped) return;
       this.#connect().catch((err: unknown) => {
-        logger.warn(`重连失败: ${errorMessage(err)}`);
+        if (this.#stopped) return;
+        logger.warn(`重连失败: ${this.#redact(errorMessage(err))}`);
         this.#scheduleReconnect();
       });
     }, delay);

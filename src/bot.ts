@@ -388,6 +388,7 @@ export const createMilkyBot = (params: {
           : (decodeMessageId(before)?.message_seq ??
             (/^\d+$/.test(before) ? Number(before) : undefined));
       if (beforeSeq === 0) return [];
+      // Milky 的 start_message_seq 含起点，框架的 before 不含，故减一
       const { messages } = await client.call("get_history_messages", {
         message_scene: peer.scene,
         peer_id: peer.peer_id,
